@@ -2,6 +2,6 @@ FROM nginx:alpine
 MAINTAINER chaithu
 RUN rm -rf /usr/share/nginx/html/*
 WORKDIR /usr/share/nginx/html
-COPY . .
+COPY index.html .
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
