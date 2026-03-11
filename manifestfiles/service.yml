@@ -9,5 +9,5 @@ spec:
     app: soil
   ports:
     - protocol: TCP
-      port: 80        # LoadBalancer external port
+      port: 80        #  http traffic if u have certs then change to 443 LoadBalancer 
       targetPort: 80  # Must match containerPort
