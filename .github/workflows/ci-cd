@@ -1,1 +1,164 @@
+name: Soil-Sense CI/CD → EKS
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 1: Build → Push to ECR
+  # ─────────────────────────────────────────────────────────────
+  build-and-push:
+    name: 🔨 Build & Push to ECR
+    runs-on: ubuntu-latest
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tag }}
+      image-uri: ${{ steps.build-push.outputs.image-uri }}
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-soil-build
+          aws-region:        ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Generate image tag
+        id: meta
+        run: echo "tag=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Build, tag, and push image to ECR
+        id: build-push
+        env:
+          REGISTRY:         ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG:        ${{ steps.meta.outputs.tag }}
+          ECR_REPOSITORY:   ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_URI="${REGISTRY}/${ECR_REPOSITORY}:latest"
+
+          echo "Building: ${IMAGE_URI}"
+          docker build -t "${IMAGE_URI}" -t "${LATEST_URI}" .
+
+          docker push "${IMAGE_URI}"
+          docker push "${LATEST_URI}"
+
+          echo "image-uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "✅ Pushed: ${IMAGE_URI}"
+
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref:      ${{ steps.build-push.outputs.image-uri }}
+          format:         table
+          exit-code:      0
+          severity:       HIGH,CRITICAL
+          ignore-unfixed: true
+
+  # ─────────────────────────────────────────────────────────────
+  # JOB 2: Deploy to EKS  (main branch only, not on PRs)
+  # ─────────────────────────────────────────────────────────────
+  deploy:
+    name: 🚀 Deploy to EKS
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: github-actions-soil-deploy
+          aws-region:        ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name   ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl get namespace ${{ secrets.K8S_NAMESPACE }} \
+            || kubectl create namespace ${{ secrets.K8S_NAMESPACE }}
+
+      - name: Apply Service manifest
+        run: kubectl apply -f manifestfiles/service.yml
+
+      - name: Deploy new image to EKS
+        env:
+          REGISTRY:        ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG:       ${{ needs.build-and-push.outputs.image-tag }}
+          ECR_REPOSITORY:  ${{ secrets.ECR_REPOSITORY }}
+          DEPLOYMENT_NAME: ${{ secrets.DEPLOYMENT_NAME }}
+          CONTAINER_NAME:  ${{ secrets.CONTAINER_NAME }}
+          K8S_NAMESPACE:   ${{ secrets.K8S_NAMESPACE }}
+        run: |
+          FULL_IMAGE="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          echo "🚀 Deploying: ${FULL_IMAGE}"
+
+          kubectl apply -f manifestfiles/Deployment.yml \
+            --namespace=${K8S_NAMESPACE}
+
+          kubectl set image deployment/${DEPLOYMENT_NAME} \
+            ${CONTAINER_NAME}="${FULL_IMAGE}" \
+            --namespace=${K8S_NAMESPACE}
+
+          kubectl annotate deployment/${DEPLOYMENT_NAME} \
+            --namespace=${K8S_NAMESPACE} \
+            kubernetes.io/change-cause="GitHub SHA: ${GITHUB_SHA}" \
+            --overwrite
+
+      - name: Wait for rollout to complete
+        run: |
+          kubectl rollout status deployment/${{ secrets.DEPLOYMENT_NAME }} \
+            --namespace=${{ secrets.K8S_NAMESPACE }} \
+            --timeout=180s
+
+      - name: Print LoadBalancer URL
+        run: |
+          echo "⏳ Fetching LoadBalancer address..."
+          for i in {1..15}; do
+            HOSTNAME=$(kubectl get svc soil \
+              --namespace=${{ secrets.K8S_NAMESPACE }} \
+              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+            IP=$(kubectl get svc soil \
+              --namespace=${{ secrets.K8S_NAMESPACE }} \
+              -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+            if [ -n "$HOSTNAME" ]; then
+              echo "✅ App is live at: http://${HOSTNAME}"
+              break
+            elif [ -n "$IP" ]; then
+              echo "✅ App is live at: http://${IP}"
+              break
+            fi
+            echo "Attempt ${i}/15 — waiting 10s..."
+            sleep 10
+          done
 
