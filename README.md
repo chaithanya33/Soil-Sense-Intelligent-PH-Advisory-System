@@ -66,7 +66,9 @@ promethus setup using helm installed repo and setup promethus and grafana
 <img width="1920" height="1080" alt="Screenshot (27)" src="https://github.com/user-attachments/assets/0972ec1a-6fad-4f7a-8d64-ac5fc5abdfed" />
 <img width="1920" height="1080" alt="Screenshot (22)" src="https://github.com/user-attachments/assets/081df3f6-8978-4a37-8a6d-945e7315be80" />
 
-project architecture:
+project architecture: 
+
+
 
 
 
