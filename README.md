@@ -69,6 +69,9 @@ promethus setup using helm installed repo and setup promethus and grafana
 project architecture: 
 
 
+<img width="261" height="999" alt="Untitled Diagram drawio" src="https://github.com/user-attachments/assets/5344ea26-7a1d-45c5-8af3-784079da74a5" />
+
+
 
 
 
