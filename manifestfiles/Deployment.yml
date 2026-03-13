@@ -15,6 +15,6 @@ spec:
     spec:
       containers:
         - name: cont1
-          image: chaithanya2/soil:
+          image: 7040980959.dkr.ecr.ap-southeast-1.amazonaws.com/soil-sense:latest
           ports:
             - containerPort: 80
