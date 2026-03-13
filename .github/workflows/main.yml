@@ -17,7 +17,7 @@ jobs:
   # JOB 1: Build → Push to ECR
   # ─────────────────────────────────────────────────────────────
   build-and-push:
-    name: 🔨 Build & Push to ECR
+    name:    Build & Push to ECR
     runs-on: ubuntu-latest
 
     outputs:
