@@ -123,9 +123,6 @@ jobs:
           FULL_IMAGE="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
           echo "🚀 Deploying: ${FULL_IMAGE}"
 
-          kubectl apply -f manifestfiles/Deployment.yml \
-            --namespace=${K8S_NAMESPACE}
-
           kubectl set image deployment/${DEPLOYMENT_NAME} \
             ${CONTAINER_NAME}="${FULL_IMAGE}" \
             --namespace=${K8S_NAMESPACE}
